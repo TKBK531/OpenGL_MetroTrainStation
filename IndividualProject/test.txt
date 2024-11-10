@@ -1,0 +1,240 @@
+
+
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <string>
+#include <sstream>
+#include <array>
+#include <regex>
+#include <GL/glut.h> // Include OpenGL, GLUT
+
+// Structure to hold vertex coordinates
+struct Vertex
+{
+    float x, y, z;
+};
+
+// Structure to hold face data (4 vertices per face)
+struct Face
+{
+    std::array<Vertex, 4> vertices;
+};
+
+// Class to handle model loading and data storage
+class ModelLoader
+{
+private:
+    std::vector<Face> faces;
+
+    bool parseVertexLine(const std::string& line, float& x, float& y, float& z)
+    {
+        std::regex pattern(R"(\[(-?\d+\.?\d*),\s*(-?\d+\.?\d*),\s*(-?\d+\.?\d*)\])");
+        std::smatch matches;
+
+        if (std::regex_search(line, matches, pattern))
+        {
+            x = std::stof(matches[1]);
+            y = std::stof(matches[2]);
+            z = std::stof(matches[3]);
+            return true;
+        }
+        return false;
+    }
+
+public:
+    bool loadFromFile(const std::string& filename)
+    {
+        std::ifstream file(filename);
+        if (!file.is_open())
+        {
+            std::cerr << "Error: Could not open file " << filename << std::endl;
+            return false;
+        }
+
+        std::string line;
+        Face currentFace;
+        int vertexCount = 0;
+
+        while (std::getline(file, line))
+        {
+            if (line.find("Face") != std::string::npos)
+            {
+                if (vertexCount == 4)
+                {
+                    faces.push_back(currentFace);
+                    vertexCount = 0;
+                }
+            }
+            else if (line.find("Vertex") != std::string::npos)
+            {
+                float x, y, z;
+                if (parseVertexLine(line, x, y, z))
+                {
+                    if (vertexCount < 4)
+                    {
+                        currentFace.vertices[vertexCount] = { x, y, z };
+                        vertexCount++;
+                    }
+                }
+            }
+        }
+
+        if (vertexCount == 4)
+        {
+            faces.push_back(currentFace);
+        }
+
+        file.close();
+        return true;
+    }
+
+    const std::vector<Face>& getFaces() const
+    {
+        return faces;
+    }
+};
+
+ModelLoader model; // Global model loader object
+
+// Rotation angles
+float angleX = 0.0f;
+float angleY = 0.0f;
+
+// Zoom level
+float zoom = 10.0f;
+
+// Lighting toggle
+bool lightingEnabled = true;
+
+// OpenGL display function to draw the model
+void display()
+{
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear buffers
+    glLoadIdentity();
+
+    // Position the camera
+    gluLookAt(0.0, 0.0, zoom, // Eye position
+        0.0, 0.0, 0.0,  // Look-at point
+        0.0, 1.0, 0.0); // Up direction
+
+    // Apply rotations
+    glRotatef(angleX, 1.0, 0.0, 0.0);
+    glRotatef(angleY, 0.0, 1.0, 0.0);
+
+    // Enable or disable lighting based on toggle
+    if (lightingEnabled)
+    {
+        glEnable(GL_LIGHTING);
+    }
+    else
+    {
+        glDisable(GL_LIGHTING);
+    }
+
+    // Draw each face as a polygon
+    glColor3f(0.9f, 0.8f, 0.7f); // Set model color
+    glBegin(GL_QUADS);
+    for (const auto& face : model.getFaces())
+    {
+        for (const auto& vertex : face.vertices)
+        {
+            glVertex3f(vertex.x, vertex.y, vertex.z);
+        }
+    }
+    glEnd();
+
+    glutSwapBuffers();
+}
+
+// OpenGL setup
+void setupOpenGL()
+{
+    glClearColor(0.2f, 0.2f, 0.2f, 1.0f); // Background color
+    glEnable(GL_DEPTH_TEST);              // Enable depth testing
+    glEnable(GL_LIGHT0);                  // Enable light #0
+    glEnable(GL_COLOR_MATERIAL);          // Enable color tracking
+
+    // Set up light parameters
+    GLfloat lightPos[] = { 0.0f, 0.0f, 10.0f, 1.0f };
+    GLfloat lightAmbient[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+    GLfloat lightDiffuse[] = { 0.8f, 0.8f, 0.8f, 1.0f };
+    GLfloat lightSpecular[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    glLightfv(GL_LIGHT0, GL_POSITION, lightPos);
+    glLightfv(GL_LIGHT0, GL_AMBIENT, lightAmbient);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, lightDiffuse);
+    glLightfv(GL_LIGHT0, GL_SPECULAR, lightSpecular);
+
+    glMatrixMode(GL_PROJECTION); // Set up perspective projection
+    glLoadIdentity();
+    gluPerspective(45.0, 1.0, 1.0, 50.0); // Adjust field of view
+    glMatrixMode(GL_MODELVIEW);           // Back to model view matrix
+}
+
+// Keyboard function to handle arrow keys, zoom, and lighting toggle
+void keyboard(int key, int x, int y)
+{
+    switch (key)
+    {
+    case GLUT_KEY_UP:
+        angleX -= 5.0f;
+        break;
+    case GLUT_KEY_DOWN:
+        angleX += 5.0f;
+        break;
+    case GLUT_KEY_LEFT:
+        angleY -= 5.0f;
+        break;
+    case GLUT_KEY_RIGHT:
+        angleY += 5.0f;
+        break;
+    case GLUT_KEY_PAGE_UP:
+        zoom -= 1.0f;
+        if (zoom < 1.0f)
+            zoom = 1.0f; // Prevent zooming too close
+        break;
+    case GLUT_KEY_PAGE_DOWN:
+        zoom += 1.0f;
+        break;
+    }
+    glutPostRedisplay(); // Request display update
+}
+
+// Regular key function to toggle lighting with 'L' key
+void normalKey(unsigned char key, int x, int y)
+{
+    if (key == 'l' || key == 'L')
+    {
+        lightingEnabled = !lightingEnabled; // Toggle lighting
+        std::cout << "Lighting " << (lightingEnabled ? "enabled" : "disabled") << std::endl;
+        glutPostRedisplay(); // Request display update
+    }
+}
+
+// Main function to initialize OpenGL and load the model
+int main(int argc, char** argv)
+{
+    // Load the model
+    if (!model.loadFromFile("D:/UOP/3000Level/GraphicsProjects/compartment_.txt"))
+    {
+        std::cerr << "Failed to load model." << std::endl;
+        return -1;
+    }
+
+    // Initialize GLUT and create window
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH);
+    glutInitWindowSize(800, 600);
+    glutCreateWindow("3D Model Viewer");
+
+    // Set up OpenGL and register callbacks
+    setupOpenGL();
+    glutDisplayFunc(display);
+    glutSpecialFunc(keyboard);   // Register special keys (arrow keys)
+    glutKeyboardFunc(normalKey); // Register regular key for lighting toggle
+
+    // Start the main loop
+    glutMainLoop();
+    return 0;
+}
